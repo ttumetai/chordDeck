@@ -1,0 +1,32 @@
+[project]
+name = "chord-deck"
+version = "1.0.0"
+description = "Local chord recognition and editing web app"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "chord-extractor>=0.1.3",
+    "fastapi>=0.115",
+    "librosa>=0.10,<1",
+    "madmom-infer",
+    "numpy>=1.24,<2",
+    "python-multipart>=0.0.9",
+    "scipy>=1.9",
+    "setuptools<82",
+    "soundfile>=0.12",
+    "uvicorn[standard]>=0.30",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+madmom-infer = { git = "https://github.com/openmirlab/madmom-infer.git" }
+
+[tool.uv.extra-build-dependencies]
+vamp = ["numpy"]
+
+[[tool.uv.index]]
+name = "tsinghua"
+url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+default = true

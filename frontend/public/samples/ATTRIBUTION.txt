@@ -1,0 +1,11 @@
+Piano samples used by this project:
+
+Source repository:
+https://github.com/nbrosowsky/tonejs-instruments
+
+Repository notes:
+- Code license: MIT
+- Samples license: CC BY 3.0
+- sample-source-info.txt lists piano sample source as: VSO2
+
+This project uses the piano note samples under public/samples/.

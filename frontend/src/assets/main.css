@@ -1,0 +1,145 @@
+/* ── 设计基调：高端克制 ──────────────────────────────
+   近黑暖底 · 低饱和金点缀 · 细线 · 大留白 · 衬线标题
+   ───────────────────────────────────────────────── */
+
+:root {
+  --bg: #0c0d0f;
+  --bg-soft: #101114;
+  --surface: #14161a;
+  --surface-2: #1a1c22;
+  --border: #262931;
+  --border-soft: #1d2026;
+
+  --text: #e8e6e1;
+  --text-dim: #9ca0a8;
+  --text-faint: #5d616a;
+
+  --accent: #c2ab7f;
+  --accent-soft: rgba(194, 171, 127, 0.1);
+  --accent-line: rgba(194, 171, 127, 0.38);
+  --danger: #c97b6d;
+
+  --radius: 12px;
+  --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI',
+    'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  --font-serif: 'Songti SC', 'Noto Serif SC', 'STSong', 'SimSun', Georgia, serif;
+  --font-mono: 'SF Mono', ui-monospace, 'JetBrains Mono', Menlo, Consolas,
+    monospace;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  /* 极淡的径向暖光，营造沉稳氛围 */
+  background-image: radial-gradient(
+    1100px 520px at 50% -180px,
+    rgba(194, 171, 127, 0.055),
+    transparent 62%
+  );
+  background-repeat: no-repeat;
+}
+
+::selection {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+button {
+  font-family: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ── 通用元素 ── */
+.caption {
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.divider {
+  height: 1px;
+  background: var(--border-soft);
+  border: none;
+  margin: 0;
+}
+
+/* 淡入动画 */
+.fade-in {
+  animation: fadeIn 0.55s ease both;
+}
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* 克制的主按钮 */
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 18px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  transition: color 0.25s ease, border-color 0.25s ease, background 0.25s ease;
+}
+.btn-ghost:hover {
+  color: var(--text);
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}
+
+/* 细线旋转加载环 */
+.spinner {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border);
+  border-top-color: var(--accent);
+  animation: spin 1.1s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

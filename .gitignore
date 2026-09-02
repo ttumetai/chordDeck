@@ -1,0 +1,23 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+*.log
+.env
+.env.*
+.DS_Store
+
+# Node
+frontend/node_modules/
+frontend/dist/
+frontend/.npm-cache/
+
+# 运行时数据
+backend/resources/
+backend/*.db
+backend/.model_cache/
+
+# 示例产物
+sample.wav
