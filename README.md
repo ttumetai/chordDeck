@@ -12,6 +12,16 @@ Upload a piece of music, recognize its chords, inspect the progression on a play
 
 [中文](#中文) · [English](#english)
 
+## 界面预览 / Screenshots
+
+### 首页 / Upload
+
+![Chord Deck 首页](docs/images/home.png)
+
+### 识别结果 / Analysis result
+
+![Chord Deck 识别结果页](docs/images/result.png)
+
 ## 中文
 
 ### 项目简介
