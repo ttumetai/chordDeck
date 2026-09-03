@@ -59,7 +59,7 @@ function fmtDur(t) {
 }
 
 const sourceLabel = (s) =>
-  s === 'deepchroma' ? 'DeepChroma' : s === 'chordino' ? 'Chordino' : '模板匹配'
+  s === 'deepchroma' ? 'DeepChroma' : s === 'chordino' ? 'Chordino' : s === 'lv-chordia' ? 'LV-Chordia' : '模板匹配'
 </script>
 
 <template>

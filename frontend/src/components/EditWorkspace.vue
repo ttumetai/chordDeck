@@ -68,6 +68,7 @@ onUnmounted(() => {
   document.body.classList.remove('modal-open')
   window.removeEventListener('keydown', onKey)
   endPan()
+  stopPreview()
 })
 
 const DENSITY_OPTIONS = [
@@ -132,9 +133,11 @@ function applyDefaultZoom() {
 /* 拖动空白处/刻度尺平移时间轴 */
 const panning = ref(false)
 const panStart = ref(null)
+const justDragged = ref(false)
 function startPan(e) {
   if (panStart.value) return
   e.preventDefault()
+  justDragged.value = false
   panning.value = true
   panStart.value = { x: e.clientX, scroll: viewportRef.value.scrollLeft }
   window.addEventListener('pointermove', onPanMove)
@@ -143,6 +146,7 @@ function startPan(e) {
 function onPanMove(e) {
   const p = panStart.value
   if (!p || !viewportRef.value) return
+  if (Math.abs(e.clientX - p.x) > 3) justDragged.value = true
   viewportRef.value.scrollLeft = p.scroll - (e.clientX - p.x)
 }
 function endPan() {
@@ -325,6 +329,7 @@ const drag = ref(null) // { mode, idx, startClientX, startT }
 const dragPreview = ref(null) // { t0, t1 }
 
 function onLaneDown(e, idx) {
+  justDragged.value = false
   const hit = hitTest(e.clientX)
   if (!hit) {
     sel.value = -1
@@ -345,6 +350,7 @@ function onLaneDown(e, idx) {
 
 function onLaneMove(e) {
   if (!drag.value) return
+  if (Math.abs(e.clientX - drag.value.startClientX) > 3) justDragged.value = true
   const d = drag.value
   const dt = (e.clientX - d.startClientX) / px()
   const list = rows.value
@@ -403,6 +409,14 @@ function onLaneDbl(e) {
   const b = g.find((x) => t > x.t0 + 0.02 && t < x.t1 - 0.02)
   if (!b) return
   splitBlock(b.idx, snapT(t))
+}
+
+function onTimelineClick(e) {
+  if (justDragged.value || e.detail > 1) {
+    justDragged.value = false
+    return
+  }
+  setPlayAnchor(tAt(e.clientX))
 }
 
 function splitBlock(i, t) {
@@ -466,7 +480,10 @@ const anyInvalid = computed(() => {
 /* ── 键盘快捷键 ── */
 function onKey(e) {
   if (e.target.closest('input, textarea, select')) return
-  if (e.key === 'Delete' || e.key === 'Backspace') {
+  if (e.code === 'Space' && !e.repeat) {
+    e.preventDefault()
+    togglePreview()
+  } else if (e.key === 'Delete' || e.key === 'Backspace') {
     if (sel.value >= 0) {
       e.preventDefault()
       removeBlock(sel.value)
@@ -537,6 +554,58 @@ const canSave = computed(
 )
 
 const selRow = computed(() => (sel.value >= 0 ? rows.value[sel.value] : null))
+
+/* ── 编辑器试听 ── */
+const previewAudio = ref(null)
+const previewPlaying = ref(false)
+const previewCurrent = ref(0)
+const previewDuration = ref(Number(props.analysis.duration) || 0)
+const previewAnchor = ref(0)
+
+const previewCursor = computed(() =>
+  (previewPlaying.value ? previewCurrent.value : previewAnchor.value) * px(),
+)
+
+const fmtPreview = (t) => {
+  const s = Math.max(0, Math.floor(Number(t) || 0))
+  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
+}
+
+function togglePreview() {
+  const audio = previewAudio.value
+  if (!audio) return
+  if (audio.paused) {
+    audio.currentTime = previewAnchor.value
+    audio.play().then(() => (previewPlaying.value = true)).catch(() => {})
+  } else {
+    audio.pause()
+    previewPlaying.value = false
+  }
+}
+
+function setPlayAnchor(t) {
+  const next = Math.min(duration.value, Math.max(0, snapT(t)))
+  previewAnchor.value = next
+  previewCurrent.value = next
+  if (previewAudio.value) previewAudio.value.currentTime = next
+}
+
+function onPreviewEnded() {
+  previewPlaying.value = false
+  previewCurrent.value = previewDuration.value
+}
+
+function onPreviewMetadata(e) {
+  if (Number.isFinite(e.target?.duration) && e.target.duration > 0) {
+    previewDuration.value = e.target.duration
+  }
+}
+
+function stopPreview() {
+  const audio = previewAudio.value
+  if (audio) audio.pause()
+  previewPlaying.value = false
+}
 </script>
 
 <template>
@@ -544,6 +613,15 @@ const selRow = computed(() => (sel.value >= 0 ? rows.value[sel.value] : null))
     <div class="ws-panel">
       <!-- 标题栏 -->
       <header class="ws-head">
+        <audio
+          ref="previewAudio"
+          class="ws-audio"
+          :src="analysis.audio_url"
+          preload="metadata"
+          @loadedmetadata="onPreviewMetadata"
+          @timeupdate="previewCurrent = $event.target.currentTime || 0"
+          @ended="onPreviewEnded"
+        ></audio>
         <div class="ws-title-box">
           <h2 class="ws-title">编辑和弦</h2>
           <span class="ws-file" :title="analysis.filename">{{ analysis.filename }}</span>
@@ -552,6 +630,15 @@ const selRow = computed(() => (sel.value >= 0 ? rows.value[sel.value] : null))
           <span v-if="beatsLoading" class="caption bpm-loading">识别节拍…</span>
           <span v-else-if="bpm" class="bpm-chip mono">♩ = {{ bpm }}</span>
           <span v-else class="caption bpm-none">未检测到节拍</span>
+          <span class="ws-preview-time mono">{{ fmtPreview(previewCurrent) }} / {{ fmtPreview(previewDuration) }}</span>
+          <button class="ws-play" :aria-label="previewPlaying ? '暂停原曲' : '播放原曲'" :title="previewPlaying ? '暂停原曲' : '播放原曲（从定位点开始）'" @click="togglePreview">
+            <svg v-if="!previewPlaying" viewBox="0 0 20 20" aria-hidden="true">
+              <path d="m7 4.8 8 5.2-8 5.2z" fill="currentColor" />
+            </svg>
+            <svg v-else viewBox="0 0 20 20" aria-hidden="true">
+              <path d="M6.2 4.8h2.5v10.4H6.2zm5.1 0h2.5v10.4h-2.5z" fill="currentColor" />
+            </svg>
+          </button>
           <button class="btn-ghost" :disabled="saving" @click="close">
             {{ cancelAsk ? '确认放弃修改？' : '取消' }}
           </button>
@@ -599,7 +686,7 @@ const selRow = computed(() => (sel.value >= 0 ? rows.value[sel.value] : null))
       </div>
 
       <!-- 编曲视图 -->
-      <div ref="viewportRef" class="arrange" :class="{ panning }" @wheel.prevent="onCanvasWheel">
+      <div ref="viewportRef" class="arrange" :class="{ panning }" @scroll="scrollLeft = $event.target.scrollLeft" @wheel.prevent="onCanvasWheel">
         <div class="canvas" :style="{ width: contentW + 'px' }">
           <!-- 网格线（背景层） -->
           <template v-for="(l, i) in gridRender.lines" :key="'g' + i">
@@ -611,7 +698,7 @@ const selRow = computed(() => (sel.value >= 0 ? rows.value[sel.value] : null))
           </template>
 
           <!-- 刻度尺：小节号 + 秒刻度 -->
-          <div class="ruler" @pointerdown="startPan">
+          <div class="ruler" @pointerdown="startPan" @click="onTimelineClick">
             <span
               v-for="(b, i) in gridRender.barNo"
               :key="'b' + i"
@@ -634,7 +721,9 @@ const selRow = computed(() => (sel.value >= 0 ? rows.value[sel.value] : null))
             @pointerup="onLaneUp"
             @pointercancel="onLaneUp"
             @dblclick="onLaneDbl"
+            @click="onTimelineClick"
           >
+            <div class="preview-cursor" :style="{ left: previewCursor + 'px' }"></div>
             <div
               v-for="b in blockGeom"
               :key="rows[b.idx].uid"
@@ -775,6 +864,33 @@ const selRow = computed(() => (sel.value >= 0 ? rows.value[sel.value] : null))
   align-items: center;
   gap: 10px;
   flex: none;
+}
+.ws-audio {
+  display: none;
+}
+.ws-preview-time {
+  font-size: 11px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+.ws-play {
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--text-dim);
+  transition: color 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+}
+.ws-play svg {
+  width: 14px;
+  height: 14px;
+}
+.ws-play:hover {
+  color: var(--accent);
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
 }
 .bpm-chip {
   font-size: 12px;
@@ -980,6 +1096,17 @@ const selRow = computed(() => (sel.value >= 0 ? rows.value[sel.value] : null))
   position: relative;
   height: 110px;
   cursor: grab;
+}
+.preview-cursor {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent-line);
+  pointer-events: none;
+  z-index: 10;
+  transition: left 0.08s linear;
 }
 
 .block {

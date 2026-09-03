@@ -45,6 +45,7 @@ class ChordLogicTests(unittest.TestCase):
 
     def test_engine_validation(self):
         self.assertEqual(_validate_engine(" ChOrDiNo "), "chordino")
+        self.assertEqual(_validate_engine(" LV-Chordia "), "lv-chordia")
         with self.assertRaises(HTTPException) as ctx:
             _validate_engine("unknown")
         self.assertEqual(ctx.exception.status_code, 422)

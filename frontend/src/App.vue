@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, ref, shallowRef, watch } from 'vue'
 import UploadZone from './components/UploadZone.vue'
+import AnalyzeConfirm from './components/AnalyzeConfirm.vue'
 import ChordTimeline from './components/ChordTimeline.vue'
 import ExportMenu from './components/ExportMenu.vue'
 import HistoryList from './components/HistoryList.vue'
@@ -12,6 +13,9 @@ const state = ref('idle') // idle | analyzing | ready | error
 const errorMsg = ref('')
 const result = shallowRef(null)
 const selectedFile = ref(null)
+const uploadConfirmOpen = ref(false)
+const uploadBusy = ref(false)
+const uploadCache = shallowRef(null)
 const history = ref([])
 const analyzingKind = ref('analyze') // analyze | history | reanalyze
 const reanalyzingId = ref('')
@@ -23,8 +27,8 @@ let pollToken = 0
 const editOpen = ref(false)
 // 覆盖人工修改前的确认：{ title, message, confirmText, run }
 const confirmRef = ref(null)
-watch(confirmRef, (v) => {
-  if (v) document.body.classList.add('modal-open')
+watch([confirmRef, uploadConfirmOpen], ([v, uploadOpen]) => {
+  if (v || uploadOpen) document.body.classList.add('modal-open')
   else document.body.classList.remove('modal-open')
 })
 
@@ -97,10 +101,44 @@ async function waitForTask(taskId, token) {
 
 function onFileSelected(file) {
   selectedFile.value = file
-  upload(file)
+  uploadCache.value = null
+  uploadConfirmOpen.value = true
 }
 
-async function upload(file) {
+function cancelUploadConfirm() {
+  if (uploadBusy.value) return
+  uploadConfirmOpen.value = false
+  uploadCache.value = null
+  selectedFile.value = null
+}
+
+async function confirmUpload({ filename, engine }) {
+  if (!selectedFile.value) return
+  uploadBusy.value = true
+  try {
+    await upload(selectedFile.value, engine, filename)
+  } finally {
+    uploadBusy.value = false
+  }
+}
+
+function openCachedUpload() {
+  const cached = uploadCache.value
+  if (!cached) return
+  uploadConfirmOpen.value = false
+  uploadCache.value = null
+  applyResult(cached)
+}
+
+function reanalyzeCachedUpload() {
+  const cached = uploadCache.value
+  if (!cached) return
+  uploadConfirmOpen.value = false
+  uploadCache.value = null
+  reanalyzeHistoryItem(cached, cached.engine)
+}
+
+async function upload(file, engine = 'auto', filename = file.name) {
   pollToken += 1
   state.value = 'analyzing'
   analyzingKind.value = 'analyze'
@@ -109,6 +147,8 @@ async function upload(file) {
   errorMsg.value = ''
   const form = new FormData()
   form.append('file', file)
+  form.append('engine', engine)
+  form.append('filename', filename)
   try {
     const resp = await fetch('/api/analyze', { method: 'POST', body: form })
     if (!resp.ok) {
@@ -122,12 +162,19 @@ async function upload(file) {
       throw new Error(detail)
     }
     let data = await resp.json()
+    if (data.cached) {
+      state.value = 'idle'
+      uploadCache.value = data
+      return
+    }
+    uploadConfirmOpen.value = false
     if (resp.status === 202 && data.task_id) {
       data = await waitForTask(data.task_id, pollToken)
     }
     if (!data.chords?.length) throw new Error('未识别到任何和弦，请更换音频重试')
     applyResult(data)
   } catch (err) {
+    uploadConfirmOpen.value = false
     errorMsg.value = err.message || '上传或识别失败，请重试'
     state.value = 'error'
   }
@@ -256,6 +303,8 @@ function reset() {
   result.value = null
   errorMsg.value = ''
   selectedFile.value = null
+  uploadConfirmOpen.value = false
+  uploadCache.value = null
   editOpen.value = false
   document.body.classList.remove('modal-open')
 }
@@ -265,12 +314,15 @@ const sourceLabel = (s) =>
     ? 'DeepChroma · CRF'
     : s === 'chordino'
       ? 'Chordino · NNLS-Chroma'
-      : '色度模板匹配（回退）'
+      : s === 'lv-chordia'
+        ? 'LV-Chordia'
+        : '色度模板匹配（回退）'
 
 const ENGINE_OPTIONS = [
   { value: 'auto', label: '自动' },
   { value: 'deepchroma', label: 'DeepChroma' },
   { value: 'chordino', label: 'Chordino' },
+  { value: 'lv-chordia', label: 'LV-Chordia' },
 ]
 const engineSel = ref('auto') // 当前展示的引擎
 
@@ -447,6 +499,18 @@ const displayChords = computed(() => {
       :analysis="result"
       @close="onWorkspaceClose"
       @saved="onWorkspaceSaved"
+    />
+
+    <!-- 上传后的分析设置与缓存确认 -->
+    <AnalyzeConfirm
+      v-if="uploadConfirmOpen && selectedFile"
+      :file="selectedFile"
+      :busy="uploadBusy"
+      :cached-result="uploadCache"
+      @confirm="confirmUpload"
+      @cancel="cancelUploadConfirm"
+      @open-cache="openCachedUpload"
+      @reanalyze-cache="reanalyzeCachedUpload"
     />
 
     <!-- 覆盖人工修改确认 -->

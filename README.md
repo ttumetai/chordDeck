@@ -31,7 +31,7 @@ Chord Deck 是一个本地优先的音频和弦识别与编辑工具。音频、
 ### 功能
 
 - 支持 WAV、MP3、OGG、FLAC、M4A、AAC、WebM、Opus、AIFF。
-- DeepChroma、Chordino 和 librosa 模板匹配三段式识别回退链路。
+- DeepChroma、Chordino 和 librosa 模板匹配三段式默认回退链路，并提供独立环境中的 LV-Chordia 可选引擎。
 - MD5 + 引擎缓存，重复分析可直接复用结果。
 - 长音频后台分析，前端显示排队、提取和保存阶段进度。
 - 播放器时间轴、悬停和弦标记、点击跳转、空格播放/暂停。
@@ -46,7 +46,7 @@ Chord Deck 是一个本地优先的音频和弦识别与编辑工具。音频、
 | --- | --- |
 | 前端 | Vue 3 + Vite + 原生 Web Audio API |
 | 后端 | Python + FastAPI + Uvicorn |
-| 识别 | DeepChroma / Chordino NNLS-Chroma / librosa 模板匹配 |
+| 识别 | DeepChroma / Chordino NNLS-Chroma / librosa 模板匹配 / 可选 LV-Chordia |
 | 持久化 | SQLite + 本地音频资源目录 |
 | 包管理 | uv（Python）和 npm（前端） |
 
@@ -146,7 +146,9 @@ VAMP 插件和 DeepChroma 模型缓存属于可选能力。缺失时脚本会显
 | `GET` | `/api/analyses/{id}/beats` | 获取或计算节拍网格 |
 | `GET` | `/api/health` | 健康检查 |
 
-`engine` 支持 `auto`（默认）、`deepchroma` 和 `chordino`。`auto` 按 DeepChroma → Chordino → librosa 模板匹配顺序回退。
+`engine` 支持 `auto`（默认）、`deepchroma`、`chordino` 和 `lv-chordia`。`auto` 仍按 DeepChroma → Chordino → librosa 模板匹配顺序回退，不会自动切换到 LV-Chordia。
+
+LV-Chordia 需要单独安装 `.venv-lv`，后端通过实验适配器子进程调用；可用 `CHORD_LV_PYTHON`、`CHORD_LV_DEVICE` 和 `CHORD_LV_VOCABULARY` 配置路径、CPU/MPS 设备和词汇表。
 
 ### 识别后处理
 

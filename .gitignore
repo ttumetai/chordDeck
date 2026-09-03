@@ -1,5 +1,6 @@
 # Python
 .venv/
+.venv-lv/
 __pycache__/
 *.pyc
 .pytest_cache/
@@ -21,3 +22,4 @@ backend/.model_cache/
 
 # 示例产物
 sample.wav
+experiments/results/

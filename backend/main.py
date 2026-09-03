@@ -248,7 +248,7 @@ def _history_item(record: dict) -> dict:
     }
 
 
-ENGINES = {"auto", "deepchroma", "chordino"}
+ENGINES = {"auto", "deepchroma", "chordino", "lv-chordia"}
 
 
 def _validate_engine(engine: str) -> str:
@@ -266,11 +266,14 @@ def health():
 
 
 @app.post("/api/analyze")
-def analyze(file: UploadFile = File(...), engine: str = Form("auto")):
+def analyze(file: UploadFile = File(...), engine: str = Form("auto"), filename: str = Form("")):
     """接收音频文件：(md5, engine) 命中缓存直接返回，否则分析并入缓存。"""
     engine = _validate_engine(engine)
-    filename = file.filename or "audio"
-    ext = os.path.splitext(filename)[1].lower()
+    original_filename = file.filename or "audio"
+    if not isinstance(filename, str):
+        filename = ""
+    display_filename = os.path.basename((filename or original_filename).strip()) or original_filename
+    ext = os.path.splitext(original_filename)[1].lower()
     if ext not in ALLOWED_EXTS:
         raise HTTPException(
             status_code=415,
@@ -304,7 +307,7 @@ def analyze(file: UploadFile = File(...), engine: str = Form("auto")):
     record = {
         "id": uuid.uuid4().hex[:12],
         "md5": md5,
-        "filename": filename,
+        "filename": display_filename,
         "stored_name": dest.name,
         "file_size": file_size,
         "duration": get_duration(str(dest)),
@@ -323,7 +326,7 @@ def analyze(file: UploadFile = File(...), engine: str = Form("auto")):
         return JSONResponse(
             status_code=202,
             content={"task_id": task_id, "status": "queued", "progress": 0,
-                     "stage": "queued", "filename": filename},
+                     "stage": "queued", "filename": display_filename},
         )
 
     try:

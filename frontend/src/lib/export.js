@@ -26,6 +26,16 @@ function csvCell(v) {
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
 }
 
+function sourceLabel(source) {
+  return source === 'deepchroma'
+    ? 'DeepChroma'
+    : source === 'chordino'
+      ? 'Chordino'
+      : source === 'lv-chordia'
+        ? 'LV-Chordia'
+        : '色度模板匹配'
+}
+
 /** CSV：与 extract_chords.py 的 --out 输出格式一致（含 BOM，Excel 友好） */
 export function buildCsv(chords) {
   const rows = ['timestamp_sec,time,chord']
@@ -49,7 +59,7 @@ export function buildChordChart(payload) {
   lines.push(`和弦谱 · ${filename || '未命名'}`)
   lines.push(
     `时长 ${formatTime(duration || 0)} · 识别引擎 ${
-      source === 'chordino' ? 'Chordino' : '色度模板匹配'
+      sourceLabel(source)
     }`,
   )
   lines.push('')

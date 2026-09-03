@@ -4,14 +4,17 @@
     * deepchroma —— madmom-infer 的 DeepChroma（DNN 色度）+ CRF，
       精度最高的本地方案；权重首次运行时下载（存 backend/.model_cache）
     * chordino   —— Chordino (NNLS-Chroma)，传统方案
+    * lv-chordia  —— 独立 .venv-lv 中的可选大词汇模型
     * 自动回退     —— 任一引擎失败时降级：deepchroma → chordino → librosa 模板
 
 结果会经过后处理（见 postprocess）：合并过短片段、折叠重复标记、
 并按「简化 / 完整」两档归一化和弦名。
 """
+import json
 import logging
 import os
 import re
+import subprocess
 from pathlib import Path
 
 os.environ.setdefault("VAMP_PATH", os.path.expanduser("~/vamp-plugins"))
@@ -137,9 +140,9 @@ def _build_templates():
 def extract_chords(audio_path: str, engine: str = "auto"):
     """提取和弦序列，返回 (chords, source)。
 
-    engine: "auto" | "deepchroma" | "chordino"
+    engine: "auto" | "deepchroma" | "chordino" | "lv-chordia"
     chords: [{"timestamp": float(秒), "chord": str}, ...]，按时间升序。
-    source: 实际使用的提取器（"deepchroma" / "chordino" / "chroma-template"）。
+    source: 实际使用的提取器（"deepchroma" / "chordino" / "lv-chordia" / "chroma-template"）。
     """
     if engine == "deepchroma":
         try:
@@ -158,6 +161,9 @@ def extract_chords(audio_path: str, engine: str = "auto"):
         except Exception as exc:  # noqa: BLE001
             logger.warning("Chordino 提取失败（%s），回退 librosa 模板", exc)
             return _extract_librosa(audio_path), "chroma-template"
+
+    if engine == "lv-chordia":
+        return _extract_lv_chordia(audio_path), "lv-chordia"
 
     # auto：高精度优先
     try:
@@ -227,6 +233,61 @@ def _extract_chordino(audio_path: str):
     return [
         {"timestamp": round(float(c.timestamp), 3), "chord": c.chord}
         for c in changes
+    ]
+
+
+def _extract_lv_chordia(audio_path: str):
+    """Call the optional lv-chordia adapter in the isolated environment."""
+    root = Path(__file__).resolve().parents[1]
+    python = Path(
+        os.getenv("CHORD_LV_PYTHON", str(root / ".venv-lv" / "bin" / "python"))
+    ).expanduser()
+    adapter = root / "experiments" / "lv_chordia_adapter.py"
+    if not python.is_file():
+        raise RuntimeError(f"lv-chordia 环境不存在：{python}")
+    if not adapter.is_file():
+        raise RuntimeError(f"lv-chordia 适配器不存在：{adapter}")
+
+    device = os.getenv("CHORD_LV_DEVICE", "cpu").strip().lower()
+    if device not in {"cpu", "mps"}:
+        raise RuntimeError(f"CHORD_LV_DEVICE 必须是 cpu 或 mps，而不是 {device!r}")
+    vocabulary = os.getenv("CHORD_LV_VOCABULARY", "submission").strip().lower()
+    if vocabulary not in {"submission", "ismir2017", "full"}:
+        raise RuntimeError(f"CHORD_LV_VOCABULARY 不支持：{vocabulary!r}")
+    try:
+        result = subprocess.run(
+            [
+                str(python),
+                str(adapter),
+                str(Path(audio_path).resolve()),
+                "--device",
+                device,
+                "--vocabulary",
+                vocabulary,
+            ],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            timeout=float(os.getenv("CHORD_LV_TIMEOUT_SECONDS", "3600")),
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"lv-chordia 超时（{exc.timeout} 秒）") from exc
+    if result.returncode:
+        detail = result.stderr.strip()[-4000:]
+        raise RuntimeError(detail or f"lv-chordia 进程退出码 {result.returncode}")
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("lv-chordia 返回了无效 JSON") from exc
+    if payload.get("error"):
+        raise RuntimeError(str(payload["error"]))
+    changes = payload.get("chords") or []
+    if not changes:
+        raise RuntimeError("lv-chordia 未返回任何和弦")
+    return [
+        {"timestamp": round(float(item["timestamp"]), 3), "chord": item["chord"]}
+        for item in changes
     ]
 
 
