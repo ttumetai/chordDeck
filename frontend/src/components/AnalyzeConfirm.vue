@@ -17,7 +17,7 @@ const engines = [
   { value: 'auto', label: '自动', detail: '综合推荐 · 失败时自动回退' },
   { value: 'deepchroma', label: 'DeepChroma', detail: '精度优先 · 适合大多数歌曲' },
   { value: 'chordino', label: 'Chordino', detail: '速度较快 · 传统稳定方案' },
-  { value: 'lv-chordia', label: 'LV-Chordia', detail: '复杂和弦优先 · 内存占用较高' },
+  { value: 'lv-chordia', label: 'LV-Chordia', detail: '复杂和弦优先 · 自动选择 MPS/CPU' },
 ]
 
 const engine = ref('auto')

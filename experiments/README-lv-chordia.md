@@ -15,6 +15,7 @@ Run one device:
 ```bash
 ./.venv-lv/bin/python experiments/lv_chordia_adapter.py sample.wav --device cpu
 ./.venv-lv/bin/python experiments/lv_chordia_adapter.py sample.wav --device mps
+./.venv-lv/bin/python experiments/lv_chordia_adapter.py sample.wav --device auto
 ```
 
 Run the comparison and write JSON plus Markdown under
@@ -27,6 +28,9 @@ python experiments/compare_engines.py sample.wav --include-current
 `lv-chordia 1.1.0` exposes no `device` argument and its network wrapper calls
 `.cuda()` directly. The adapter uses a subprocess-local MPS bridge, so this
 experiment does not patch the installed package or connect it to the app.
+
+`auto` selects MPS when the isolated PyTorch environment exposes MPS;
+otherwise it selects CPU. The backend uses `auto` by default.
 
 The adapter detects a leading `N` segment that extends over clear audio energy.
 It then preserves only the measured silent prefix and re-decodes the active

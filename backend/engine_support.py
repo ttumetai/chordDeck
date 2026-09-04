@@ -48,10 +48,13 @@ def _vamp_status() -> tuple[bool, str]:
 
 
 def _lv_status() -> tuple[bool, str]:
-    python = Path(
-        os.getenv("CHORD_LV_PYTHON", str(ROOT / ".venv-lv" / "bin" / "python"))
-    ).expanduser()
-    if not python.is_file():
+    configured_python = os.getenv("CHORD_LV_PYTHON", "").strip()
+    candidates = [Path(configured_python).expanduser()] if configured_python else [
+        ROOT / ".venv-lv" / "bin" / "python",
+        ROOT / ".venv-lv" / "Scripts" / "python.exe",
+    ]
+    python = next((candidate for candidate in candidates if candidate.is_file()), None)
+    if python is None:
         return False, "未安装独立 .venv-lv 环境"
     try:
         probe = subprocess.run(

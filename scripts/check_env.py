@@ -36,8 +36,12 @@ for module in ("fastapi", "uvicorn", "numpy", "scipy", "librosa", "soundfile", "
     else:
         fail(f"Python module missing: {module} (run uv sync)")
 
-lv_python = ROOT / ".venv-lv" / "bin" / "python"
-if lv_python.is_file():
+lv_python_candidates = [
+    ROOT / ".venv-lv" / "bin" / "python",
+    ROOT / ".venv-lv" / "Scripts" / "python.exe",
+]
+lv_python = next((path for path in lv_python_candidates if path.is_file()), None)
+if lv_python:
     lv_probe = subprocess.run(
         [
             str(lv_python),
@@ -56,7 +60,7 @@ if lv_python.is_file():
             + (lv_probe.stderr.strip().splitlines()[-1] if lv_probe.stderr.strip() else "unknown error")
         )
 else:
-    warn(f"lv-chordia sidecar not installed: {lv_python}")
+    warn(f"lv-chordia sidecar not installed: {lv_python_candidates[-1]}")
 
 vamp_roots = [Path(p).expanduser() for p in os.getenv("VAMP_PATH", "~/vamp-plugins").split(os.pathsep) if p]
 vamp_files = [p for root in vamp_roots if root.is_dir() for p in root.rglob("nnls-chroma.*")]

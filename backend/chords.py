@@ -41,6 +41,14 @@ _KEEP_SUFFIX = {
     "sus2", "sus4", "5",
 }
 
+_KEY_NAMES = ["C", "Db", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"]
+_MAJOR_SCALE = {0, 2, 4, 5, 7, 9, 11}
+_MINOR_SCALE = {0, 2, 3, 5, 7, 8, 10}
+_KEY_PROFILES = {
+    "major": [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88],
+    "minor": [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17],
+}
+
 
 def simplify_chord(label: str) -> str:
     """把复杂和弦名归一化为「根音 + 常见性质」。
@@ -104,6 +112,95 @@ def postprocess(changes: list, min_dur: float = 0.6):
         ]
     )
     return full, simple
+
+
+def _chord_root_and_quality(label: str):
+    match = _CHORD_RE.match((label or "").strip())
+    if not match or label == "N":
+        return None, ""
+    root, suffix = match.groups()
+    root = _SHARP_TO_FLAT.get(root, root)
+    try:
+        root_index = NOTE_NAMES.index(root)
+    except ValueError:
+        return None, suffix
+    return root_index, suffix
+
+
+def estimate_key(audio_path: str, chords: list | None = None) -> dict:
+    """Estimate the global key with chroma first and chord durations as support."""
+    import librosa
+    import numpy as np
+
+    y, sr = librosa.load(audio_path, sr=22050, mono=True)
+    if y.size == 0:
+        raise RuntimeError("音频内容为空，无法判断调性")
+    hop = 512
+    chroma = librosa.feature.chroma_cqt(y=y, sr=sr, hop_length=hop)
+    rms = librosa.feature.rms(y=y, frame_length=2048, hop_length=hop, center=True)[0]
+    if chroma.shape[1] != rms.size:
+        rms = np.interp(np.linspace(0, rms.size - 1, chroma.shape[1]), np.arange(rms.size), rms)
+    active = rms > max(float(rms.max()) * 0.05, 1e-4)
+    weights = rms * active
+    if not np.any(weights):
+        weights = np.ones(chroma.shape[1])
+    chroma_mean = (chroma * weights[None, :]).sum(axis=1)
+    chroma_mean /= np.linalg.norm(chroma_mean) + 1e-9
+    audio_duration = float(librosa.get_duration(y=y, sr=sr))
+
+    profile_scores = []
+    for mode, profile in _KEY_PROFILES.items():
+        profile = np.asarray(profile, dtype=float)
+        profile /= np.linalg.norm(profile)
+        for tonic in range(12):
+            expected = np.zeros(12)
+            expected[(tonic + np.arange(12)) % 12] = profile
+            profile_scores.append((float(expected @ chroma_mean), tonic, mode))
+
+    chord_scores = {(tonic, mode): 0.0 for mode in _KEY_PROFILES for tonic in range(12)}
+    if chords:
+        for index, chord in enumerate(chords):
+            root, suffix = _chord_root_and_quality(chord.get("chord"))
+            if root is None:
+                continue
+            start = float(chord.get("timestamp", 0.0))
+            end = float(
+                chords[index + 1].get("timestamp", start)
+                if index + 1 < len(chords)
+                else audio_duration
+            )
+            duration = max(0.1, end - start)
+            is_minor = suffix.startswith("m") or suffix.startswith("min")
+            for tonic in range(12):
+                for mode, scale in (("major", _MAJOR_SCALE), ("minor", _MINOR_SCALE)):
+                    relative = (root - tonic) % 12
+                    score = 1.0 if relative in scale else -0.5
+                    if relative == 0:
+                        score += 1.0
+                    if mode == ("minor" if is_minor else "major") and relative == 0:
+                        score += 0.5
+                    chord_scores[(tonic, mode)] += duration * score
+
+    profile_min = min(score for score, _tonic, _mode in profile_scores)
+    profile_max = max(score for score, _tonic, _mode in profile_scores)
+    chord_values = list(chord_scores.values())
+    chord_min, chord_max = min(chord_values), max(chord_values)
+    combined = []
+    for score, tonic, mode in profile_scores:
+        chroma_score = (score - profile_min) / (profile_max - profile_min + 1e-9)
+        chord_score = (chord_scores[(tonic, mode)] - chord_min) / (chord_max - chord_min + 1e-9)
+        combined.append((0.75 * chroma_score + 0.25 * chord_score, tonic, mode))
+    combined.sort(reverse=True)
+    best, second = combined[0], combined[1]
+    margin = max(0.0, best[0] - second[0])
+    confidence = min(1.0, max(0.0, 0.45 + margin * 1.8))
+    key_short = _KEY_NAMES[best[1]] + ("m" if best[2] == "minor" else "")
+    return {
+        "key": f"{_KEY_NAMES[best[1]]} {'minor' if best[2] == 'minor' else 'major'}",
+        "key_short": key_short,
+        "key_confidence": round(confidence, 3),
+        "key_method": "chroma+chords" if chords else "chroma",
+    }
 
 
 def _build_templates():
@@ -239,18 +336,21 @@ def _extract_chordino(audio_path: str):
 def _extract_lv_chordia(audio_path: str):
     """Call the optional lv-chordia adapter in the isolated environment."""
     root = Path(__file__).resolve().parents[1]
-    python = Path(
-        os.getenv("CHORD_LV_PYTHON", str(root / ".venv-lv" / "bin" / "python"))
-    ).expanduser()
+    configured_python = os.getenv("CHORD_LV_PYTHON", "").strip()
+    python_candidates = [Path(configured_python).expanduser()] if configured_python else [
+        root / ".venv-lv" / "bin" / "python",
+        root / ".venv-lv" / "Scripts" / "python.exe",
+    ]
+    python = next((candidate for candidate in python_candidates if candidate.is_file()), python_candidates[0])
     adapter = root / "experiments" / "lv_chordia_adapter.py"
     if not python.is_file():
         raise RuntimeError(f"lv-chordia 环境不存在：{python}")
     if not adapter.is_file():
         raise RuntimeError(f"lv-chordia 适配器不存在：{adapter}")
 
-    device = os.getenv("CHORD_LV_DEVICE", "cpu").strip().lower()
-    if device not in {"cpu", "mps"}:
-        raise RuntimeError(f"CHORD_LV_DEVICE 必须是 cpu 或 mps，而不是 {device!r}")
+    device = os.getenv("CHORD_LV_DEVICE", "auto").strip().lower()
+    if device not in {"auto", "cpu", "mps"}:
+        raise RuntimeError(f"CHORD_LV_DEVICE 必须是 auto、cpu 或 mps，而不是 {device!r}")
     vocabulary = os.getenv("CHORD_LV_VOCABULARY", "submission").strip().lower()
     if vocabulary not in {"submission", "ismir2017", "full"}:
         raise RuntimeError(f"CHORD_LV_VOCABULARY 不支持：{vocabulary!r}")

@@ -38,6 +38,7 @@ Chord Deck 是一个本地优先的音频和弦识别与编辑工具。音频、
 - 完整和弦/简化和弦双档展示与导出。
 - DAW 风格编辑工作台：移动、缩放、吸附、分割、删除、改名和保存。
 - BPM、节拍网格、转位和弦解析、钢琴键盘高亮与钢琴试听。
+- 全曲调性识别：统一使用 librosa Chroma，并结合和弦结果给出调性与置信度。
 - 历史记录、重新识别、删除缓存音频。
 
 ### 技术栈
@@ -54,13 +55,19 @@ Chord Deck 是一个本地优先的音频和弦识别与编辑工具。音频、
 
 #### 一键启动
 
-项目已包含环境检查和启动脚本：
+项目已包含自动准备环境、环境检查和启动脚本：
 
 ```bash
 ./start.sh
 ```
 
-脚本会检查 Python 模块、VAMP 插件、DeepChroma 模型缓存、npm、前端依赖和生产构建，然后启动：
+Windows PowerShell：
+
+```powershell
+.\start.ps1
+```
+
+首次运行时，脚本会在项目目录内准备 uv、Node.js/npm、主 Python 环境、前端依赖和独立的 LV-Chordia 环境；之后会检查 Python 模块、VAMP 插件、DeepChroma 模型缓存和生产构建，然后启动并自动打开浏览器。脚本不会修改系统全局工具。首次安装 LV-Chordia 可能需要较长时间和较多磁盘空间。Windows 需要允许当前用户执行 PowerShell 脚本。
 
 - 前端：http://127.0.0.1:5173
 - 后端：http://127.0.0.1:8000
@@ -144,11 +151,12 @@ VAMP 插件和 DeepChroma 模型缓存属于可选能力。缺失时脚本会显
 | `GET` | `/api/history` | 获取历史记录 |
 | `GET` | `/api/audio/{name}` | 获取本地托管音频 |
 | `GET` | `/api/analyses/{id}/beats` | 获取或计算节拍网格 |
+| `GET` | `/api/analyses/{id}/key` | 获取或计算全曲调性 |
 | `GET` | `/api/health` | 健康检查 |
 
 `engine` 支持 `auto`（默认）、`deepchroma`、`chordino` 和 `lv-chordia`。`auto` 仍按 DeepChroma → Chordino → librosa 模板匹配顺序回退，不会自动切换到 LV-Chordia。
 
-LV-Chordia 需要单独安装 `.venv-lv`，后端通过实验适配器子进程调用；可用 `CHORD_LV_PYTHON`、`CHORD_LV_DEVICE` 和 `CHORD_LV_VOCABULARY` 配置路径、CPU/MPS 设备和词汇表。
+LV-Chordia 需要单独安装 `.venv-lv`，后端通过实验适配器子进程调用；默认自动选择 MPS 或 CPU，也可用 `CHORD_LV_PYTHON`、`CHORD_LV_DEVICE` 和 `CHORD_LV_VOCABULARY` 配置路径、设备和词汇表。Windows 虚拟环境使用 `.venv-lv\\Scripts\\python.exe`。
 
 后端启动时会检测当前系统可用的引擎，前端会将不可用引擎置灰并显示原因。检测脚本也可以单独运行：`./.venv/bin/python scripts/detect_engines.py`。LV-Chordia 可用时会在选择页标记为推荐，但不会加入 `auto` 默认链路。
 

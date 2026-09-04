@@ -25,6 +25,10 @@ CREATE TABLE IF NOT EXISTS analyses (
     engine        TEXT NOT NULL DEFAULT 'chordino',
     bpm           REAL DEFAULT NULL,
     beats         TEXT DEFAULT NULL,
+    key_name      TEXT DEFAULT NULL,
+    key_short     TEXT DEFAULT NULL,
+    key_confidence REAL DEFAULT NULL,
+    key_method    TEXT DEFAULT NULL,
     edited        INTEGER NOT NULL DEFAULT 0,
     edited_at     TEXT DEFAULT NULL,
     created_at    TEXT NOT NULL DEFAULT (datetime('now')),
@@ -66,6 +70,10 @@ def init_db():
         additions = {
             "bpm": "REAL DEFAULT NULL",
             "beats": "TEXT DEFAULT NULL",
+            "key_name": "TEXT DEFAULT NULL",
+            "key_short": "TEXT DEFAULT NULL",
+            "key_confidence": "REAL DEFAULT NULL",
+            "key_method": "TEXT DEFAULT NULL",
             "edited": "INTEGER NOT NULL DEFAULT 0",
             "edited_at": "TEXT DEFAULT NULL",
         }
@@ -98,8 +106,9 @@ def insert(record: dict):
             """
             INSERT INTO analyses
                 (id, md5, filename, stored_name, file_size, duration, source,
-                 chords, chords_simple, engine, bpm, beats)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                chords, chords_simple, engine, bpm, beats,
+                key_name, key_short, key_confidence, key_method)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 record["id"],
@@ -116,6 +125,10 @@ def insert(record: dict):
                 json.dumps(record.get("beats") or [], ensure_ascii=False)
                 if record.get("beats")
                 else None,
+                record.get("key_name"),
+                record.get("key_short"),
+                record.get("key_confidence"),
+                record.get("key_method"),
             ),
         )
 
@@ -137,13 +150,14 @@ def update_full(rid: str, chords_full: list):
 
 
 def update_analysis(rid: str, *, chords: list, chords_simple: list,
-                    source: str, duration):
+                    source: str, duration, key_data: dict | None = None):
     """重新识别后整行更新（created_at 刷新为当前时间，历史排序随之更新）。"""
     with closing(_connect()) as conn, conn:
         conn.execute(
             """
             UPDATE analyses
             SET chords = ?, chords_simple = ?, source = ?, duration = ?,
+                key_name = ?, key_short = ?, key_confidence = ?, key_method = ?,
                 created_at = datetime('now')
             WHERE id = ?
             """,
@@ -152,6 +166,28 @@ def update_analysis(rid: str, *, chords: list, chords_simple: list,
                 json.dumps(chords_simple, ensure_ascii=False),
                 source,
                 duration,
+                (key_data or {}).get("key"),
+                (key_data or {}).get("key_short"),
+                (key_data or {}).get("key_confidence"),
+                (key_data or {}).get("key_method"),
+                rid,
+            ),
+        )
+
+
+def update_key(rid: str, key_data: dict):
+    with closing(_connect()) as conn, conn:
+        conn.execute(
+            """
+            UPDATE analyses
+            SET key_name = ?, key_short = ?, key_confidence = ?, key_method = ?
+            WHERE id = ?
+            """,
+            (
+                key_data.get("key"),
+                key_data.get("key_short"),
+                key_data.get("key_confidence"),
+                key_data.get("key_method"),
                 rid,
             ),
         )

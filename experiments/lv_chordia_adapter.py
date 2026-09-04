@@ -111,6 +111,14 @@ def _enable_mps_bridge(torch) -> None:
     torch.load = load
 
 
+def _select_device(torch, requested: str) -> str:
+    if requested == "auto":
+        return "mps" if torch.backends.mps.is_available() else "cpu"
+    if requested == "mps" and not torch.backends.mps.is_available():
+        raise RuntimeError("MPS is not available in this PyTorch installation")
+    return requested
+
+
 def _energy_onset(audio: Path, sr: int = 22050, hop_length: int = 512) -> tuple[int, float | None]:
     """Find the first short run of clearly non-silent frames."""
     import librosa
@@ -183,6 +191,7 @@ def _leading_n_end(raw: list[dict]) -> float | None:
 def recognize(audio: Path, device: str, vocabulary: str) -> dict:
     import torch
 
+    device = _select_device(torch, device)
     if device == "mps":
         _enable_mps_bridge(torch)
 
@@ -258,7 +267,7 @@ def recognize(audio: Path, device: str, vocabulary: str) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("audio", type=Path)
-    parser.add_argument("--device", choices=("cpu", "mps"), default="cpu")
+    parser.add_argument("--device", choices=("auto", "cpu", "mps"), default="auto")
     parser.add_argument("--vocabulary", "--chord-dict", dest="vocabulary", choices=("submission", "ismir2017", "full"), default="submission")
     args = parser.parse_args()
     if not args.audio.is_file():

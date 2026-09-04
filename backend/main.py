@@ -39,6 +39,7 @@ try:
         collapse_duplicates,
         extract_beats,
         extract_chords,
+        estimate_key,
         get_duration,
         postprocess,
         simplify_chord,
@@ -50,6 +51,7 @@ except ImportError:  # 以 `uvicorn main:app` 从 backend/ 目录启动时
         collapse_duplicates,
         extract_beats,
         extract_chords,
+        estimate_key,
         get_duration,
         postprocess,
         simplify_chord,
@@ -134,11 +136,20 @@ def _task_response(task_id: str):
         return dict(task)
 
 
+def _estimate_key(audio_path: str, chords: list) -> dict:
+    try:
+        return estimate_key(audio_path, chords)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("调性识别失败（不影响和弦结果）: %s", exc)
+        return {}
+
+
 def _analyze_record(record: dict, dest: Path):
     """执行识别、后处理和节拍提取；同步接口与后台任务共用。"""
     logger.info("开始识别: %s (engine=%s, md5=%s)", record["filename"], record["engine"], record["md5"])
     changes, source = extract_chords(str(dest), record["engine"])
     chords_full, chords_simple = postprocess(changes)
+    key_data = _estimate_key(str(dest), chords_full)
     bpm, beats, _bsrc = extract_beats(str(dest))
     if bpm is None:
         logger.info("节拍未检出: %s", record["filename"])
@@ -150,6 +161,10 @@ def _analyze_record(record: dict, dest: Path):
         chords_simple=chords_simple,
         bpm=bpm,
         beats=beats,
+        key_name=key_data.get("key"),
+        key_short=key_data.get("key_short"),
+        key_confidence=key_data.get("key_confidence"),
+        key_method=key_data.get("key_method"),
     )
     return record
 
@@ -180,19 +195,22 @@ def _run_reanalyze_task(task_id: str, rid: str, engine: str, record: dict, audio
     try:
         changes, source = extract_chords(str(audio_path), engine)
         chords_full, chords_simple = postprocess(changes)
+        key_data = _estimate_key(str(audio_path), chords_full)
         _task_update(task_id, progress=0.75, stage="saving")
         duration = get_duration(str(audio_path))
         slot = db.find_by_md5(record["md5"], engine)
         if slot:
             target_id = slot["id"]
             db.update_analysis(target_id, chords=chords_full, chords_simple=chords_simple,
-                               source=source, duration=duration)
+                               source=source, duration=duration, key_data=key_data)
         else:
             target_id = uuid.uuid4().hex[:12]
             db.insert({"id": target_id, "md5": record["md5"], "filename": record["filename"],
                        "stored_name": record["stored_name"], "file_size": record["file_size"],
                        "duration": duration, "source": source, "engine": engine,
-                       "chords": chords_full, "chords_simple": chords_simple})
+                       "chords": chords_full, "chords_simple": chords_simple,
+                       "key_name": key_data.get("key"), "key_short": key_data.get("key_short"),
+                       "key_confidence": key_data.get("key_confidence"), "key_method": key_data.get("key_method")})
         db.clear_edited(target_id)
         _task_update(task_id, progress=1, stage="done", status="done", cached=False,
                      result=_analysis_response(db.find_by_id(target_id), cached=False))
@@ -230,6 +248,10 @@ def _analysis_response(record: dict, cached: bool) -> dict:
         "engine": record.get("engine", "auto"),
         "bpm": record.get("bpm"),
         "beats_count": len(beats),
+        "key": record.get("key_name"),
+        "key_short": record.get("key_short"),
+        "key_confidence": record.get("key_confidence"),
+        "key_method": record.get("key_method"),
         "edited": bool(record.get("edited")),
         "edited_at": record.get("edited_at"),
         "cached": cached,
@@ -371,6 +393,30 @@ def get_analysis(rid: str):
     return _analysis_response(record, cached=True)
 
 
+@app.get("/api/analyses/{rid}/key")
+def get_key(rid: str):
+    """Calculate and cache the key for older analyses that predate key metadata."""
+    record = db.find_by_id(rid)
+    if not record:
+        raise HTTPException(status_code=404, detail="记录不存在")
+    audio_path = RESOURCES_DIR / record["stored_name"]
+    if not audio_path.is_file():
+        raise HTTPException(status_code=404, detail="缓存音频文件已不存在")
+    if record.get("key_short"):
+        return {
+            "key": record.get("key_name"),
+            "key_short": record.get("key_short"),
+            "key_confidence": record.get("key_confidence"),
+            "key_method": record.get("key_method"),
+        }
+    try:
+        key_data = estimate_key(str(audio_path), db.chords_of(record))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=422, detail=f"调性识别失败：{exc}") from exc
+    db.update_key(rid, key_data)
+    return key_data
+
+
 @app.post("/api/analyses/{rid}/reanalyze")
 def reanalyze(rid: str, engine: str = Query("auto")):
     """对历史记录指向的资源音频重新执行和弦识别。
@@ -401,6 +447,7 @@ def reanalyze(rid: str, engine: str = Query("auto")):
     try:
         changes, source = extract_chords(str(audio_path), engine)
         chords_full, chords_simple = postprocess(changes)
+        key_data = _estimate_key(str(audio_path), chords_full)
     except Exception as exc:  # noqa: BLE001
         logger.error("重新识别失败: %s", exc)
         raise HTTPException(status_code=422, detail=f"和弦识别失败：{exc}") from exc
@@ -415,6 +462,7 @@ def reanalyze(rid: str, engine: str = Query("auto")):
             chords_simple=chords_simple,
             source=source,
             duration=duration,
+            key_data=key_data,
         )
     else:
         target_id = uuid.uuid4().hex[:12]
@@ -430,6 +478,10 @@ def reanalyze(rid: str, engine: str = Query("auto")):
                 "engine": engine,
                 "chords": chords_full,
                 "chords_simple": chords_simple,
+                "key_name": key_data.get("key"),
+                "key_short": key_data.get("key_short"),
+                "key_confidence": key_data.get("key_confidence"),
+                "key_method": key_data.get("key_method"),
             }
         )
     db.clear_edited(target_id)  # 机器结果覆盖人工编辑标记

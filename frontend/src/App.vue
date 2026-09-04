@@ -25,6 +25,7 @@ const analyzingKind = ref('analyze') // analyze | history | reanalyze
 const reanalyzingId = ref('')
 const analysisProgress = ref(0)
 const analysisStage = ref('queued')
+const keyLoading = ref(false)
 let pollToken = 0
 
 // 编辑工作台
@@ -70,10 +71,26 @@ async function backfillBpm(analysis) {
     const resp = await fetch(`/api/analyses/${analysis.id}/beats`)
     if (resp.ok) {
       const data = await resp.json()
-      if (data.bpm != null) result.value = { ...analysis, bpm: data.bpm, beats_count: data.beats?.length || 0 }
+      if (data.bpm != null) result.value = { ...result.value, bpm: data.bpm, beats_count: data.beats?.length || 0 }
     }
   } catch {
     /* 静默失败 */
+  }
+}
+
+async function backfillKey(analysis) {
+  if (!analysis || analysis.key_short != null || !analysis.id) return
+  keyLoading.value = true
+  try {
+    const resp = await fetch(`/api/analyses/${analysis.id}/key`)
+    if (resp.ok) {
+      const data = await resp.json()
+      result.value = { ...result.value, ...data }
+    }
+  } catch {
+    /* 旧记录调性补算失败不阻塞结果页 */
+  } finally {
+    keyLoading.value = false
   }
 }
 
@@ -85,6 +102,7 @@ function applyResult(data) {
   state.value = 'ready'
   fetchHistory()
   backfillBpm(data)
+  backfillKey(data)
 }
 
 const stageLabels = {
@@ -416,6 +434,13 @@ const displayChords = computed(() => {
   }
   return result.value.chords
 })
+
+function keyConfidenceLabel(value) {
+  if (!Number.isFinite(Number(value))) return '待确认'
+  if (Number(value) >= 0.75) return '高置信度'
+  if (Number(value) >= 0.55) return '中置信度'
+  return '低置信度'
+}
 </script>
 
 <template>
@@ -453,7 +478,7 @@ const displayChords = computed(() => {
         <h2 class="analyzing-title">{{ analyzingTitle }}</h2>
         <p class="analyzing-sub">{{ analyzingSub }}</p>
         <div class="progress-track" role="progressbar" :aria-valuenow="Math.round(analysisProgress * 100)" aria-valuemin="0" aria-valuemax="100">
-          <div class="progress-fill" :style="{ width: `${Math.max(4, analysisProgress * 100)}%` }"></div>
+          <div class="progress-fill" :style="{ transform: `scaleX(${Math.max(0.04, analysisProgress)})` }"></div>
         </div>
         <p class="progress-meta">{{ progressLabel }} · {{ Math.round(analysisProgress * 100) }}%</p>
         <p v-if="analyzingKind === 'analyze'" class="analyzing-file">
@@ -470,6 +495,12 @@ const displayChords = computed(() => {
             </svg>
             返回
           </button>
+          <div v-if="result.key_short" class="key-summary" :title="`整体调性：${result.key || result.key_short} · 分析方式：${result.key_method || 'chroma+chords'}`">
+            <span class="key-summary-label">全曲调性</span>
+            <strong class="key-summary-value">{{ result.key_short }}</strong>
+            <span class="key-summary-meta">{{ result.key || result.key_short }} · {{ keyConfidenceLabel(result.key_confidence) }}</span>
+          </div>
+          <span v-else-if="keyLoading" class="key-summary-loading">调性分析中…</span>
         </div>
         <ChordTimeline
           :audio-url="result.audio_url"
@@ -662,9 +693,11 @@ const displayChords = computed(() => {
 }
 
 .result-topbar {
-  height: 30px;
+  min-height: 54px;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
 }
 
 .result-back {
@@ -712,9 +745,11 @@ const displayChords = computed(() => {
   background: var(--border);
 }
 .progress-fill {
+  width: 100%;
   height: 100%;
   background: var(--accent);
-  transition: width 0.35s ease;
+  transform-origin: left center;
+  transition: transform 0.35s ease;
 }
 .progress-meta {
   font-family: var(--font-mono);
@@ -742,6 +777,7 @@ const displayChords = computed(() => {
   align-items: center;
   gap: 10px;
   min-width: 0;
+  flex-wrap: wrap;
 }
 .rf-actions {
   font-size: 12px;
@@ -782,6 +818,60 @@ const displayChords = computed(() => {
   padding: 2px 10px;
   white-space: nowrap;
 }
+.key-summary {
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: baseline;
+  column-gap: 10px;
+  row-gap: 1px;
+  min-width: 0;
+  text-align: right;
+}
+
+.key-summary-label {
+  grid-column: 1 / -1;
+  color: var(--text-faint);
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.key-summary-value {
+  color: var(--accent);
+  font-family: var(--font-serif);
+  font-size: 28px;
+  font-weight: 500;
+  line-height: 1.1;
+}
+
+.key-summary-meta {
+  overflow: hidden;
+  color: var(--text-dim);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.key-summary-loading {
+  color: var(--text-faint);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+}
+
+@media (max-width: 760px) {
+  .rf-row .grow {
+    display: none;
+  }
+
+  .rf-actions {
+    align-items: flex-start;
+  }
+
+  .key-summary {
+    text-align: right;
+  }
+}
+
 .edited-badge {
   font-size: 10.5px;
   letter-spacing: 0.12em;
