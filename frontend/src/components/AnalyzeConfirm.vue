@@ -2,11 +2,13 @@
 import { ref, watch } from 'vue'
 
 const props = defineProps({
-  file: { type: Object, required: true },
+  file: { type: Object, default: null },
   busy: { type: Boolean, default: false },
   cachedResult: { type: Object, default: null },
   capabilities: { type: Object, default: () => ({}) },
   recommendedEngine: { type: String, default: 'auto' },
+  mode: { type: String, default: 'upload' },
+  reanalyzeItem: { type: Object, default: null },
 })
 
 const emit = defineEmits(['confirm', 'cancel', 'reselect', 'open-cache', 'reanalyze-cache'])
@@ -57,7 +59,7 @@ function confirm() {
     <section class="analysis-panel" role="dialog" aria-modal="true" aria-labelledby="analysis-title">
       <p class="analysis-kicker">准备分析</p>
       <h2 id="analysis-title" class="analysis-title">
-        {{ cachedResult ? '发现本地缓存' : '确认分析设置' }}
+        {{ cachedResult ? '发现本地缓存' : mode === 'reanalyze' ? '选择重新识别引擎' : '确认分析设置' }}
       </h2>
 
       <template v-if="cachedResult">
@@ -76,17 +78,22 @@ function confirm() {
       </template>
 
       <template v-else>
+        <p v-if="mode === 'reanalyze'" class="analysis-message">
+          将重新识别「{{ reanalyzeItem?.filename }}」，当前结果会被新的模型结果替换。
+        </p>
         <div class="analysis-field file-field">
-          <span>音频文件</span>
+          <span>{{ mode === 'reanalyze' ? '重新识别文件' : '音频文件' }}</span>
           <div class="file-row">
             <div class="file-info">
               <svg class="file-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true">
                 <path d="M5 2.8h6.2L15 6.6v10.6H5z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" />
                 <path d="M11 2.8v4h4M7.5 10h5M7.5 13h5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
               </svg>
-              <strong :title="file.name">{{ file.name }}</strong>
+              <strong :title="mode === 'reanalyze' ? reanalyzeItem?.filename : file?.name">
+                {{ mode === 'reanalyze' ? reanalyzeItem?.filename : file?.name }}
+              </strong>
             </div>
-            <button class="file-reselect" :disabled="busy" @click="emit('reselect')">
+            <button v-if="mode === 'upload'" class="file-reselect" :disabled="busy" @click="emit('reselect')">
               重新选择文件
             </button>
           </div>
@@ -113,11 +120,13 @@ function confirm() {
           </div>
         </fieldset>
 
-        <p v-if="busy" class="analysis-status">正在上传并检查本地缓存…</p>
+        <p v-if="busy" class="analysis-status">
+          {{ mode === 'reanalyze' ? '正在准备重新识别…' : '正在上传并检查本地缓存…' }}
+        </p>
         <div class="analysis-actions">
           <button class="btn-ghost" :disabled="busy" @click="emit('cancel')">取消</button>
           <button class="analysis-primary" :disabled="busy" @click="confirm">
-            {{ busy ? '正在检查…' : '确认并开始分析' }}
+            {{ busy ? (mode === 'reanalyze' ? '正在准备…' : '正在检查…') : mode === 'reanalyze' ? '确认并重新识别' : '确认并开始分析' }}
           </button>
         </div>
       </template>

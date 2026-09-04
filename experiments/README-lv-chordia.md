@@ -28,6 +28,11 @@ python experiments/compare_engines.py sample.wav --include-current
 `.cuda()` directly. The adapter uses a subprocess-local MPS bridge, so this
 experiment does not patch the installed package or connect it to the app.
 
+The adapter detects a leading `N` segment that extends over clear audio energy.
+It then preserves only the measured silent prefix and re-decodes the active
+prefix without the package's forced initial `N` state. Existing cached results
+need `重新分析` once to pick up this correction.
+
 The checked-in `experiments/results/sample/summary.md` is the first-round
 result. It records CPU/MPS timing, peak RSS, raw and converted chords, and the
 compatibility conclusion. The current sample is not evidence for changing the

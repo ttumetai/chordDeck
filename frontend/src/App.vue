@@ -17,6 +17,7 @@ const uploadZoneRef = ref(null)
 const uploadConfirmOpen = ref(false)
 const uploadBusy = ref(false)
 const uploadCache = shallowRef(null)
+const reanalyzeConfirmItem = shallowRef(null)
 const engineCapabilities = ref({})
 const preferredEngine = ref('auto')
 const history = ref([])
@@ -30,8 +31,8 @@ let pollToken = 0
 const editOpen = ref(false)
 // 覆盖人工修改前的确认：{ title, message, confirmText, run }
 const confirmRef = ref(null)
-watch([confirmRef, uploadConfirmOpen], ([v, uploadOpen]) => {
-  if (v || uploadOpen) document.body.classList.add('modal-open')
+watch([confirmRef, uploadConfirmOpen, reanalyzeConfirmItem], ([v, uploadOpen, reanalyzeOpen]) => {
+  if (v || uploadOpen || reanalyzeOpen) document.body.classList.add('modal-open')
   else document.body.classList.remove('modal-open')
 })
 
@@ -158,7 +159,7 @@ function reanalyzeCachedUpload() {
   if (!cached) return
   uploadConfirmOpen.value = false
   uploadCache.value = null
-  reanalyzeHistoryItem(cached, cached.engine)
+  requestReanalyze(cached)
 }
 
 async function upload(file, engine = 'auto', filename = file.name) {
@@ -269,6 +270,14 @@ async function reanalyzeHistoryItem(item, engine) {
 
 // 重新识别入口：记录已人工编辑时先确认（机器结果将覆盖）
 function requestReanalyze(item, engine) {
+  if (!engine) {
+    reanalyzeConfirmItem.value = item
+    return
+  }
+  startReanalyze(item, engine)
+}
+
+function startReanalyze(item, engine) {
   const edited = item?.edited || (result.value && item.id === result.value.id && result.value.edited)
   if (edited) {
     confirmRef.value = {
@@ -280,6 +289,16 @@ function requestReanalyze(item, engine) {
   } else {
     reanalyzeHistoryItem(item, engine)
   }
+}
+
+function cancelReanalyzeConfirm() {
+  if (!reanalyzingId.value) reanalyzeConfirmItem.value = null
+}
+
+function confirmReanalyze({ engine }) {
+  const item = reanalyzeConfirmItem.value
+  reanalyzeConfirmItem.value = null
+  if (item) startReanalyze(item, engine)
 }
 
 async function deleteHistoryItem(item) {
@@ -328,6 +347,7 @@ function reset() {
   selectedFile.value = null
   uploadConfirmOpen.value = false
   uploadCache.value = null
+  reanalyzeConfirmItem.value = null
   editOpen.value = false
   document.body.classList.remove('modal-open')
 }
@@ -562,6 +582,17 @@ const displayChords = computed(() => {
       @reselect="reselectUpload"
       @open-cache="openCachedUpload"
       @reanalyze-cache="reanalyzeCachedUpload"
+    />
+
+    <AnalyzeConfirm
+      v-if="reanalyzeConfirmItem"
+      mode="reanalyze"
+      :reanalyze-item="reanalyzeConfirmItem"
+      :busy="Boolean(reanalyzingId)"
+      :capabilities="engineCapabilities"
+      :recommended-engine="preferredEngine"
+      @confirm="confirmReanalyze"
+      @cancel="cancelReanalyzeConfirm"
     />
 
     <!-- 覆盖人工修改确认 -->
