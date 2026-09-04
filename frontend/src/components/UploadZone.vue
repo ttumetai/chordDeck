@@ -12,6 +12,8 @@ const dragging = ref(false)
 const invalidMsg = ref('')
 const inputRef = ref(null)
 
+defineExpose({ pick })
+
 function pick() {
   inputRef.value?.click()
 }

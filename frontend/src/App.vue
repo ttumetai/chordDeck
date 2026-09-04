@@ -13,9 +13,12 @@ const state = ref('idle') // idle | analyzing | ready | error
 const errorMsg = ref('')
 const result = shallowRef(null)
 const selectedFile = ref(null)
+const uploadZoneRef = ref(null)
 const uploadConfirmOpen = ref(false)
 const uploadBusy = ref(false)
 const uploadCache = shallowRef(null)
+const engineCapabilities = ref({})
+const preferredEngine = ref('auto')
 const history = ref([])
 const analyzingKind = ref('analyze') // analyze | history | reanalyze
 const reanalyzingId = ref('')
@@ -41,7 +44,23 @@ async function fetchHistory() {
   }
 }
 
-onMounted(fetchHistory)
+async function fetchEngineCapabilities() {
+  try {
+    const resp = await fetch('/api/engines')
+    if (resp.ok) {
+      const data = await resp.json()
+      engineCapabilities.value = data
+      preferredEngine.value = data.recommended || 'auto'
+    }
+  } catch {
+    /* 检测接口不可用时保留自动模式；后端仍会校验引擎 */
+  }
+}
+
+onMounted(() => {
+  fetchHistory()
+  fetchEngineCapabilities()
+})
 
 /* BPM 徽标回填：旧记录无 bpm 时静默拉取（GET beats 会按需计算） */
 async function backfillBpm(analysis) {
@@ -112,14 +131,18 @@ function cancelUploadConfirm() {
   selectedFile.value = null
 }
 
-async function confirmUpload({ filename, engine }) {
+async function confirmUpload({ engine }) {
   if (!selectedFile.value) return
   uploadBusy.value = true
   try {
-    await upload(selectedFile.value, engine, filename)
+    await upload(selectedFile.value, engine, selectedFile.value.name)
   } finally {
     uploadBusy.value = false
   }
+}
+
+function reselectUpload() {
+  uploadZoneRef.value?.pick()
 }
 
 function openCachedUpload() {
@@ -326,8 +349,23 @@ const ENGINE_OPTIONS = [
 ]
 const engineSel = ref('auto') // 当前展示的引擎
 
+function engineStatus(value) {
+  return engineCapabilities.value?.engines?.[value] || null
+}
+
+function engineAvailable(value) {
+  return engineStatus(value)?.available !== false
+}
+
+function engineOptionTitle(value) {
+  const status = engineStatus(value)
+  return engineAvailable(value)
+    ? `切换到 ${ENGINE_OPTIONS.find((item) => item.value === value)?.label || value}`
+    : `当前系统不支持：${status?.reason || '依赖不可用'}`
+}
+
 async function switchEngine(eng) {
-  if (!result.value || eng === engineSel.value) return
+  if (!result.value || eng === engineSel.value || !engineAvailable(eng)) return
   requestReanalyze({ id: result.value.id, edited: result.value.edited }, eng)
 }
 
@@ -372,10 +410,10 @@ const displayChords = computed(() => {
 
     <hr class="divider" />
 
-    <main class="stage">
+    <main class="stage" :class="{ 'stage-result': state === 'ready' && result }">
       <!-- 上传 -->
       <section v-if="state === 'idle'" class="fade-in">
-        <UploadZone @select="onFileSelected" />
+        <UploadZone ref="uploadZoneRef" @select="onFileSelected" />
         <p class="stage-note">
           音频仅用于本次识别，不上传至任何第三方服务。
         </p>
@@ -405,6 +443,14 @@ const displayChords = computed(() => {
 
       <!-- 结果 -->
       <section v-else-if="state === 'ready' && result" class="fade-in">
+        <div class="result-topbar">
+          <button class="btn-ghost result-back" title="返回上传页" @click="reset">
+            <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+              <path d="M8.5 4 3 10l5.5 6M3.5 10H17" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            返回
+          </button>
+        </div>
         <ChordTimeline
           :audio-url="result.audio_url"
           :chords="displayChords"
@@ -421,8 +467,10 @@ const displayChords = computed(() => {
               <button
                 v-for="o in ENGINE_OPTIONS"
                 :key="o.value"
-                :class="{ on: engineSel === o.value }"
+                :class="{ on: engineSel === o.value, unavailable: !engineAvailable(o.value), recommended: o.value === preferredEngine && engineAvailable(o.value) }"
                 :aria-pressed="engineSel === o.value"
+                :disabled="!engineAvailable(o.value)"
+                :title="engineOptionTitle(o.value)"
                 @click="switchEngine(o.value)"
               >{{ o.label }}</button>
             </div>
@@ -507,8 +555,11 @@ const displayChords = computed(() => {
       :file="selectedFile"
       :busy="uploadBusy"
       :cached-result="uploadCache"
+      :capabilities="engineCapabilities"
+      :recommended-engine="preferredEngine"
       @confirm="confirmUpload"
       @cancel="cancelUploadConfirm"
+      @reselect="reselectUpload"
       @open-cache="openCachedUpload"
       @reanalyze-cache="reanalyzeCachedUpload"
     />
@@ -567,12 +618,40 @@ const displayChords = computed(() => {
   padding-top: 44px;
 }
 
+.stage-result {
+  padding-top: 18px;
+}
+
 .stage-note {
   margin-top: 18px;
   text-align: center;
   font-size: 12px;
   color: var(--text-faint);
   letter-spacing: 0.05em;
+}
+
+.result-topbar {
+  height: 30px;
+  display: flex;
+  align-items: flex-start;
+}
+
+.result-back {
+  padding: 3px 8px 3px 2px;
+  border-color: transparent;
+  background: transparent;
+  font-size: 12px;
+}
+
+.result-back svg {
+  width: 16px;
+  height: 16px;
+}
+
+.result-back:hover {
+  border-color: transparent;
+  background: transparent;
+  color: var(--accent);
 }
 
 /* 识别中 */
@@ -713,6 +792,20 @@ const displayChords = computed(() => {
 .seg button.on {
   color: var(--accent);
   background: var(--accent-soft);
+}
+
+.seg button.recommended:not(.on) {
+  color: var(--accent);
+}
+
+.seg button.unavailable {
+  color: var(--text-faint);
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.seg button.unavailable:hover {
+  color: var(--text-faint);
 }
 .grow {
   flex: 1;

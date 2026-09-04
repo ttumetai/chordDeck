@@ -43,6 +43,7 @@ try:
         postprocess,
         simplify_chord,
     )
+    from .engine_support import detect_engines
 except ImportError:  # 以 `uvicorn main:app` 从 backend/ 目录启动时
     import db
     from chords import (
@@ -53,6 +54,7 @@ except ImportError:  # 以 `uvicorn main:app` 从 backend/ 目录启动时
         postprocess,
         simplify_chord,
     )
+    from engine_support import detect_engines
 
 BASE_DIR = Path(__file__).resolve().parent
 RESOURCES_DIR = BASE_DIR / "resources"  # 音频文件的持久化副本
@@ -75,6 +77,7 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger("chord-app")
 
 db.init_db()
+ENGINE_STATUS = detect_engines()
 
 
 def _backfill_simple():
@@ -255,6 +258,11 @@ def _validate_engine(engine: str) -> str:
     engine = (engine or "auto").strip().lower()
     if engine not in ENGINES:
         raise HTTPException(status_code=422, detail=f"未知引擎「{engine}」")
+    if not ENGINE_STATUS["engines"][engine]["available"]:
+        raise HTTPException(
+            status_code=422,
+            detail=f"引擎「{engine}」当前系统不可用：{ENGINE_STATUS['engines'][engine]['reason']}",
+        )
     return engine
 
 
@@ -263,6 +271,12 @@ def _validate_engine(engine: str) -> str:
 @app.get("/api/health")
 def health():
     return {"status": "ok", "app": "chord-recognition"}
+
+
+@app.get("/api/engines")
+def engines():
+    """Return the engine compatibility detected at backend startup."""
+    return ENGINE_STATUS
 
 
 @app.post("/api/analyze")

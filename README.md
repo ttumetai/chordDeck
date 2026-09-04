@@ -150,6 +150,8 @@ VAMP 插件和 DeepChroma 模型缓存属于可选能力。缺失时脚本会显
 
 LV-Chordia 需要单独安装 `.venv-lv`，后端通过实验适配器子进程调用；可用 `CHORD_LV_PYTHON`、`CHORD_LV_DEVICE` 和 `CHORD_LV_VOCABULARY` 配置路径、CPU/MPS 设备和词汇表。
 
+后端启动时会检测当前系统可用的引擎，前端会将不可用引擎置灰并显示原因。检测脚本也可以单独运行：`./.venv/bin/python scripts/detect_engines.py`。LV-Chordia 可用时会在选择页标记为推荐，但不会加入 `auto` 默认链路。
+
 ### 识别后处理
 
 后端会在入库前：

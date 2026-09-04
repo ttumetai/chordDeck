@@ -44,8 +44,18 @@ class ChordLogicTests(unittest.TestCase):
         )
 
     def test_engine_validation(self):
-        self.assertEqual(_validate_engine(" ChOrDiNo "), "chordino")
-        self.assertEqual(_validate_engine(" LV-Chordia "), "lv-chordia")
+        original_status = {
+            name: main.ENGINE_STATUS["engines"][name]["available"]
+            for name in ("chordino", "lv-chordia")
+        }
+        try:
+            main.ENGINE_STATUS["engines"]["chordino"]["available"] = True
+            main.ENGINE_STATUS["engines"]["lv-chordia"]["available"] = True
+            self.assertEqual(_validate_engine(" ChOrDiNo "), "chordino")
+            self.assertEqual(_validate_engine(" LV-Chordia "), "lv-chordia")
+        finally:
+            for name, available in original_status.items():
+                main.ENGINE_STATUS["engines"][name]["available"] = available
         with self.assertRaises(HTTPException) as ctx:
             _validate_engine("unknown")
         self.assertEqual(ctx.exception.status_code, 422)

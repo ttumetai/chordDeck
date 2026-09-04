@@ -1,16 +1,16 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 
 const props = defineProps({
   file: { type: Object, required: true },
   busy: { type: Boolean, default: false },
   cachedResult: { type: Object, default: null },
+  capabilities: { type: Object, default: () => ({}) },
+  recommendedEngine: { type: String, default: 'auto' },
 })
 
-const emit = defineEmits(['confirm', 'cancel', 'open-cache', 'reanalyze-cache'])
+const emit = defineEmits(['confirm', 'cancel', 'reselect', 'open-cache', 'reanalyze-cache'])
 
-const filename = ref(props.file.name)
-const engine = ref('auto')
 const engines = [
   { value: 'auto', label: '自动', detail: '综合推荐 · 失败时自动回退' },
   { value: 'deepchroma', label: 'DeepChroma', detail: '精度优先 · 适合大多数歌曲' },
@@ -18,8 +18,37 @@ const engines = [
   { value: 'lv-chordia', label: 'LV-Chordia', detail: '复杂和弦优先 · 内存占用较高' },
 ]
 
+const engine = ref('auto')
+
+watch(
+  () => props.recommendedEngine,
+  (value) => {
+    if (value && engine.value === 'auto') engine.value = value
+  },
+  { immediate: true },
+)
+
+function statusFor(value) {
+  return props.capabilities?.engines?.[value] || null
+}
+
+function isAvailable(value) {
+  return statusFor(value)?.available !== false
+}
+
+function engineDetail(item) {
+  const status = statusFor(item.value)
+  return isAvailable(item.value)
+    ? item.detail
+    : `当前系统不支持 · ${status?.reason || '依赖不可用'}`
+}
+
+function isRecommended(value) {
+  return value === props.recommendedEngine && isAvailable(value)
+}
+
 function confirm() {
-  emit('confirm', { filename: filename.value.trim() || props.file.name, engine: engine.value })
+  emit('confirm', { engine: engine.value })
 }
 </script>
 
@@ -47,10 +76,21 @@ function confirm() {
       </template>
 
       <template v-else>
-        <label class="analysis-field">
-          <span>文件名</span>
-          <input v-model="filename" type="text" maxlength="240" :disabled="busy" />
-        </label>
+        <div class="analysis-field file-field">
+          <span>音频文件</span>
+          <div class="file-row">
+            <div class="file-info">
+              <svg class="file-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                <path d="M5 2.8h6.2L15 6.6v10.6H5z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" />
+                <path d="M11 2.8v4h4M7.5 10h5M7.5 13h5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
+              </svg>
+              <strong :title="file.name">{{ file.name }}</strong>
+            </div>
+            <button class="file-reselect" :disabled="busy" @click="emit('reselect')">
+              重新选择文件
+            </button>
+          </div>
+        </div>
 
         <fieldset class="analysis-field engine-field">
           <legend>识别模型</legend>
@@ -59,13 +99,15 @@ function confirm() {
               v-for="item in engines"
               :key="item.value"
               class="engine-option"
-              :class="{ selected: engine === item.value }"
+              :class="{ selected: engine === item.value, unavailable: !isAvailable(item.value), recommended: isRecommended(item.value) }"
+              :title="engineDetail(item)"
             >
-              <input v-model="engine" type="radio" name="analysis-engine" :value="item.value" :disabled="busy" />
+              <input v-model="engine" type="radio" name="analysis-engine" :value="item.value" :disabled="busy || !isAvailable(item.value)" />
               <span class="engine-copy">
                 <strong>{{ item.label }}</strong>
-                <small>{{ item.detail }}</small>
+                <small>{{ engineDetail(item) }}</small>
               </span>
+              <span v-if="isRecommended(item.value)" class="engine-recommended">推荐</span>
               <span class="engine-mark" aria-hidden="true"></span>
             </label>
           </div>
@@ -149,19 +191,54 @@ function confirm() {
   text-transform: uppercase;
 }
 
-.analysis-field input[type='text'] {
-  width: 100%;
+.file-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-width: 0;
   padding: 11px 12px;
   border: 1px solid var(--border);
   border-radius: 6px;
-  outline: none;
   background: var(--bg-soft);
-  color: var(--text);
-  font: inherit;
 }
 
-.analysis-field input[type='text']:focus {
+.file-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  color: var(--text);
+}
+
+.file-icon {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  color: var(--accent);
+}
+
+.file-info strong {
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-reselect {
+  flex: none;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-dim);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.file-reselect:hover:not(:disabled) {
   border-color: var(--accent-line);
+  color: var(--accent);
 }
 
 .engine-options {
@@ -188,6 +265,24 @@ function confirm() {
   background: var(--accent-soft);
 }
 
+.engine-option.recommended {
+  border-color: var(--accent-line);
+}
+
+.engine-option.recommended .engine-copy strong {
+  color: var(--accent);
+}
+
+.engine-option.unavailable {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.engine-option.unavailable:hover {
+  border-color: var(--border);
+  background: transparent;
+}
+
 .engine-option input {
   accent-color: var(--accent);
 }
@@ -207,8 +302,20 @@ function confirm() {
 }
 
 .engine-copy small {
+  overflow: hidden;
   color: var(--text-faint);
   font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.engine-recommended {
+  flex: none;
+  padding: 2px 6px;
+  border: 1px solid var(--accent-line);
+  border-radius: 999px;
+  color: var(--accent);
+  font-size: 10px;
 }
 
 .engine-mark {
@@ -274,6 +381,8 @@ button:disabled {
 
 @media (max-width: 520px) {
   .analysis-panel { padding: 24px 20px; }
+  .file-row { align-items: flex-start; flex-direction: column; }
+  .file-reselect { align-self: flex-end; }
   .engine-options { grid-template-columns: 1fr; }
   .cache-actions { flex-wrap: wrap; }
   .cache-actions .analysis-primary { flex: 1 0 100%; }
